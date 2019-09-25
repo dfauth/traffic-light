@@ -1,10 +1,9 @@
 import java.time.{Duration, LocalDateTime}
 import java.util.concurrent.TimeUnit
 
-import akka.actor.typed.scaladsl.{AbstractBehavior, ActorContext, Behaviors}
-import akka.actor.typed.{ActorSystem, Behavior, SupervisorStrategy}
 import Utils._
-import akka.actor.typed.scaladsl.Behaviors.Receive
+import akka.actor.typed.scaladsl.{AbstractBehavior, Behaviors}
+import akka.actor.typed.{ActorSystem, Behavior, SupervisorStrategy}
 import akka.persistence.typed.PersistenceId
 import akka.persistence.typed.scaladsl.{Effect, EventSourcedBehavior}
 
@@ -29,43 +28,43 @@ object TrafficLight extends App {
 
 case class TrafficLight() {
 
+  def possiblyWithTimer(state: TrafficLightState, f:TrafficLightState => Behavior[Command]): Behavior[Command] = {
+    state.expiry.map { expiry =>
+      Behaviors.withTimers[Command] { timer =>
+        val delay = Duration.between(LocalDateTime.now(), expiry)
+        timer.startSingleTimer(id, ExpireCommand, FiniteDuration(delay.toMillis, TimeUnit.MILLISECONDS))
+        f(state)
+      }
+    }.getOrElse {
+      f(state)
+    }
+  }
+
   def behavior:Behavior[Command] = Behaviors.setup { ctx =>
     val initial:TrafficLightState = Red()
     ctx.log.info(s"initial state ${initial}")
-    Behaviors.withTimers[Command] { timer =>
-      initial.expiry.map { expiry =>
-        val delay = Duration.between(LocalDateTime.now(), expiry)
-        timer.startSingleTimer(id, ExpireCommand, FiniteDuration(delay.toMillis, TimeUnit.MILLISECONDS))
-      }
-      val b = toBehavior(initial, initial)
-      wrap(b, initial)
-    }
+    possiblyWithTimer(initial, toBehavior)
   }
 
-  def toBehavior(initial: TrafficLightState, current: TrafficLightState): AbstractBehavior[Command] = new AbstractBehavior[Command] {
+  def toBehavior(current: TrafficLightState): Behavior[Command] = new AbstractBehavior[Command] {
     override def onMessage(msg: Command): Behavior[Command] = {
       val next = current.onEvent(msg)
-      Behaviors.withTimers[Command] { timer =>
-        next.expiry.map { expiry =>
-          val delay = Duration.between(LocalDateTime.now(), expiry)
-          timer.startSingleTimer(id, ExpireCommand, FiniteDuration(delay.toMillis, TimeUnit.MILLISECONDS))
-        }
-        val b = toBehavior(initial, next)
-        wrap(b, initial)
-      }
+      possiblyWithTimer(next, toBehavior)
     }
   }
 
-  def wrap(b:AbstractBehavior[Command], initial: TrafficLightState): Behavior[Command] = b
-
-  def wrap1(b:AbstractBehavior[Command], initial: TrafficLightState): Behavior[Command] = EventSourcedBehavior.apply[Command, Command, Behavior[Command]] (
-      PersistenceId(id),                            // persistenceId
-      toBehavior(initial, initial),                 // initial state
-      (s, c) => {                                   // command handler
-            val effect:Effect[Command, Behavior[Command]] = Effect.persist(c)
-//            b.onMessage(c)
-            effect
-          },
-      (s, e) => b.onMessage(e)                      // event handler
+  def wrap(initial: TrafficLightState): Behavior[Command] = {
+    EventSourcedBehavior.apply[Command, Command, TrafficLightState] (
+      PersistenceId(id),
+      initial,
+      (s, c) => {
+        Effect.persist(c)
+      },
+      (current, msg) => {
+        val next = current.onEvent(msg)
+        possiblyWithTimer(next, wrap)
+        next
+      }
     )
+  }
 }
