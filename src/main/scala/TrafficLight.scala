@@ -1,13 +1,10 @@
-import java.time.{Duration, LocalDateTime}
-import java.util.concurrent.TimeUnit
 
 import Utils._
-import akka.actor.typed.scaladsl.{AbstractBehavior, Behaviors}
+import ActorUtils._
+import akka.actor.typed.scaladsl.{ActorContext, Behaviors}
 import akka.actor.typed.{ActorSystem, Behavior, SupervisorStrategy}
 import akka.persistence.typed.PersistenceId
 import akka.persistence.typed.scaladsl.{Effect, EventSourcedBehavior}
-
-import scala.concurrent.duration.FiniteDuration
 
 object TrafficLight extends App {
   val b = TrafficLight().behavior
@@ -24,45 +21,37 @@ object TrafficLight extends App {
   Thread.sleep(10 * 1000)
   ref ! PedestrianCommand
   Thread.sleep(3 * 1000)
+  ref ! StopCommand
+  Thread.sleep(3 * 1000)
+  ref ! StopCommand
 }
 
 case class TrafficLight() {
 
-  def possiblyWithTimer(state: TrafficLightState, f:TrafficLightState => Behavior[Command]): Behavior[Command] = {
-    state.expiry.map { expiry =>
-      Behaviors.withTimers[Command] { timer =>
-        val delay = Duration.between(LocalDateTime.now(), expiry)
-        timer.startSingleTimer(id, ExpireCommand, FiniteDuration(delay.toMillis, TimeUnit.MILLISECONDS))
-        f(state)
-      }
-    }.getOrElse {
-      f(state)
-    }
-  }
-
   def behavior:Behavior[Command] = Behaviors.setup { ctx =>
-    val initial:TrafficLightState = Red()
+    val initial = Red()
     ctx.log.info(s"initial state ${initial}")
-    possiblyWithTimer(initial, toBehavior)
+    val canceller = initial.expiryOption.map { expiry => withTimer(expiry, ExpireCommand, ctx) }
+    wrap(initial, ctx)
   }
 
-  def toBehavior(current: TrafficLightState): Behavior[Command] = new AbstractBehavior[Command] {
-    override def onMessage(msg: Command): Behavior[Command] = {
-      val next = current.onEvent(msg)
-      possiblyWithTimer(next, toBehavior)
-    }
-  }
-
-  def wrap(initial: TrafficLightState): Behavior[Command] = {
+  def wrap(initial: TrafficLightState, ctx:ActorContext[Command]): Behavior[Command] = {
     EventSourcedBehavior.apply[Command, Command, TrafficLightState] (
       PersistenceId(id),
       initial,
       (s, c) => {
-        Effect.persist(c)
+        ctx.log.info(s"persist ${c}")
+        s match {
+          case _:Final => Effect.stop()
+          case _ => Effect.persist(c)
+        }
       },
       (current, msg) => {
         val next = current.onEvent(msg)
-        possiblyWithTimer(next, wrap)
+        next match {
+            case s:TimedState => s.expiryOption.map { expiry => withTimer(expiry, ExpireCommand, ctx)}
+            case _ =>
+        }
         next
       }
     )
