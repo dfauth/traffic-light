@@ -39,21 +39,22 @@ case class TrafficLight() {
     EventSourcedBehavior.apply[Command, Command, TrafficLightState] (
       PersistenceId(id),
       initial,
-      (s, c) => {
-        ctx.log.info(s"persist ${c}")
-        s match {
-          case _:Final => Effect.stop()
-          case _ => Effect.persist(c)
-        }
+      (current, msg) => {
+        val transition = current.onEvent(msg)
+        val sideEffect = transition(current)._2
+        ctx.log.info(s"command handler (${current},${msg}) => Effect")
+        Effect.persist(msg).thenRun(s => sideEffect(s))
       },
       (current, msg) => {
-        val next = current.onEvent(msg)
+        val transition = current.onEvent(msg)
+        val next = transition(current)._1
         next match {
-            case s:TimedState => s.expiryOption.map { expiry => withTimer(expiry, ExpireCommand, ctx)}
-            case _ =>
+          case s:TimedState => s.expiryOption.map { expiry => withTimer(expiry, ExpireCommand, ctx)}
+          case _ =>
         }
         next
       }
     )
   }
+
 }

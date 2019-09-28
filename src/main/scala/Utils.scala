@@ -2,13 +2,17 @@ import java.time.{Duration, LocalDateTime}
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
+import akka.Done
 import akka.actor.typed.scaladsl.{ActorContext, Behaviors}
 
+import scala.concurrent.{Future, Promise}
 import scala.concurrent.duration.FiniteDuration
 
 object Utils {
 
   def id() = UUID.randomUUID().getLeastSignificantBits.toHexString
+
+  val done:Future[Done] = Promise[Done].success(Done).future
 
 }
 
