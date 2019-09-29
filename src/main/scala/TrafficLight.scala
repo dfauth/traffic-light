@@ -30,7 +30,7 @@ object TrafficLight extends App {
 case class TrafficLight(id:String) {
 
   def behavior:Behavior[Command] = Behaviors.setup { ctx =>
-    val initial = Red()
+    val initial = Red(ctx)
     ctx.log.info(s"initial state ${initial}")
     val canceller = initial.expiryOption.map { expiry => withTimer(expiry, ExpireCommand, ctx) }
     wrap(initial, ctx)
@@ -44,10 +44,6 @@ case class TrafficLight(id:String) {
         val transition = current.onEvent(msg)
         ctx.log.info(s"command handler (${current},${msg}) => Effect")
         val next = transition()
-        next match {
-          case s:TimedState => s.expiryOption.map { expiry => withTimer(expiry, ExpireCommand, ctx)}
-          case _ =>
-        }
         val builder:EffectBuilder[Command, TrafficLightState] = next match {
           case s:Final => Effect.persist[Command, TrafficLightState](msg).thenStop
           case _ => Effect.persist(msg)
