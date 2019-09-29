@@ -4,7 +4,7 @@ import ActorUtils._
 import akka.actor.typed.scaladsl.{ActorContext, Behaviors}
 import akka.actor.typed.{ActorSystem, Behavior, SupervisorStrategy}
 import akka.persistence.typed.PersistenceId
-import akka.persistence.typed.scaladsl.{Effect, EventSourcedBehavior}
+import akka.persistence.typed.scaladsl.{Effect, EffectBuilder, EventSourcedBehavior}
 
 object TrafficLight extends App {
   val b = TrafficLight().behavior
@@ -42,7 +42,11 @@ case class TrafficLight() {
       (current, msg) => {
         val transition = current.onEvent(msg)
         ctx.log.info(s"command handler (${current},${msg}) => Effect")
-        Effect.persist(msg).thenRun(transition.sideEffect)
+        val builder:EffectBuilder[Command, TrafficLightState] = transition() match {
+          case s:Final => Effect.persist[Command, TrafficLightState](msg).thenStop
+          case _ => Effect.persist(msg)
+        }
+        builder.thenRun(transition.sideEffect)
       },
       (current, msg) => {
         val transition = current.onEvent(msg)

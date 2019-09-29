@@ -21,6 +21,8 @@ object TrafficLightState {
 
 }
 
+sealed trait Final
+
 sealed trait TrafficLightState extends LazyLogging{
   import TrafficLightState._
   protected def _onEvent:PartialFunction[Command, Transition] = PartialFunction.empty[Command, Transition]
@@ -78,4 +80,4 @@ case class Green(expiryOption:Option[LocalDateTime] = TrafficLightState.withDura
   }
 }
 
-case object Extinguished extends TrafficLightState
+case object Extinguished extends TrafficLightState with Final
