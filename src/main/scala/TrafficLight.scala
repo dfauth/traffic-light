@@ -1,15 +1,15 @@
 
-import Utils._
 import ActorUtils._
 import akka.actor.typed.scaladsl.{ActorContext, Behaviors}
 import akka.actor.typed.{ActorSystem, Behavior, SupervisorStrategy}
-import akka.persistence.typed.PersistenceId
+import akka.persistence.typed.{PersistenceId, RecoveryCompleted}
 import akka.persistence.typed.scaladsl.{Effect, EffectBuilder, EventSourcedBehavior}
 
 object TrafficLight extends App {
-  val b = TrafficLight().behavior
-  val c = Behaviors.supervise(b).onFailure[RuntimeException](SupervisorStrategy.restart)
-  val ref = ActorSystem(c, "traffic-light")
+  val trafficLight = TrafficLight("traffic-light")
+  val c = Behaviors.supervise(trafficLight.behavior).onFailure[RuntimeException](SupervisorStrategy.resume)
+  val ref = ActorSystem(c, trafficLight.id)
+
   Thread.sleep(10 * 1000)
   ref ! TrafficCommand
   Thread.sleep(15 * 1000)
@@ -24,9 +24,10 @@ object TrafficLight extends App {
   ref ! StopCommand
   Thread.sleep(3 * 1000)
   ref ! StopCommand
+
 }
 
-case class TrafficLight() {
+case class TrafficLight(id:String) {
 
   def behavior:Behavior[Command] = Behaviors.setup { ctx =>
     val initial = Red()
@@ -42,22 +43,30 @@ case class TrafficLight() {
       (current, msg) => {
         val transition = current.onEvent(msg)
         ctx.log.info(s"command handler (${current},${msg}) => Effect")
-        val builder:EffectBuilder[Command, TrafficLightState] = transition() match {
+        val next = transition()
+        next match {
+          case s:TimedState => s.expiryOption.map { expiry => withTimer(expiry, ExpireCommand, ctx)}
+          case _ =>
+        }
+        val builder:EffectBuilder[Command, TrafficLightState] = next match {
           case s:Final => Effect.persist[Command, TrafficLightState](msg).thenStop
           case _ => Effect.persist(msg)
         }
         builder.thenRun(transition.sideEffect)
       },
       (current, msg) => {
-        val transition = current.onEvent(msg)
-        val next = transition()
-        next match {
-          case s:TimedState => s.expiryOption.map { expiry => withTimer(expiry, ExpireCommand, ctx)}
-          case _ =>
-        }
+        val next = current.onEvent(msg)()
+        ctx.log.info(s"event handler: (${current}, ${msg}) => ${next}")
         next
       }
-    )
+    ).receiveSignal {
+      case (state, signal@RecoveryCompleted) => {
+        ctx.log.info(s"recovery completed: (${state}, ${signal})")
+      }
+      case (state, signal) => {
+        ctx.log.info(s"signal received: (${state}, ${signal})")
+      }
+    }
   }
 
 }
