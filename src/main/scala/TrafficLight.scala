@@ -41,13 +41,12 @@ case class TrafficLight() {
       initial,
       (current, msg) => {
         val transition = current.onEvent(msg)
-        val sideEffect = transition(current)._2
         ctx.log.info(s"command handler (${current},${msg}) => Effect")
-        Effect.persist(msg).thenRun(s => sideEffect(s))
+        Effect.persist(msg).thenRun(transition.sideEffect)
       },
       (current, msg) => {
         val transition = current.onEvent(msg)
-        val next = transition(current)._1
+        val next = transition()
         next match {
           case s:TimedState => s.expiryOption.map { expiry => withTimer(expiry, ExpireCommand, ctx)}
           case _ =>
