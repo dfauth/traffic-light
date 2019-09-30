@@ -1,7 +1,11 @@
-sealed trait Command extends Serializable
+import java.time.LocalDateTime
 
-case object ExpireCommand extends Command with ExpireTimerCommand
-case object PedestrianCommand extends Command
-case object TrafficCommand extends Command
-case object ExplodeCommand extends Command
-case object StopCommand extends Command
+sealed trait Command extends Serializable {
+  val timestamp:LocalDateTime
+}
+
+case class ExpireCommand(timestamp:LocalDateTime = LocalDateTime.now) extends Command with ExpireTimerCommand
+case class PedestrianCommand(timestamp:LocalDateTime = LocalDateTime.now) extends Command
+case class TrafficCommand(timestamp:LocalDateTime = LocalDateTime.now) extends Command
+case class ExplodeCommand(timestamp:LocalDateTime = LocalDateTime.now) extends Command
+case class StopCommand(timestamp:LocalDateTime = LocalDateTime.now) extends Command

@@ -28,21 +28,24 @@ case object InternalCancelTimerCommand extends TimerCommand
 
 object ActorUtils {
 
-  import Utils._
-
   def withTimer[T, U <: ExpireTimerCommand](expiry:LocalDateTime, cmd:U with T, ctx:ActorContext[T]) = {
-    val timerId = id
+    val timerId = "timer"
     val b = Behaviors.withTimers[TimerCommand] { timer =>
       val delay = Duration.between(LocalDateTime.now(), expiry)
-      timer.startSingleTimer(timerId, cmd, FiniteDuration(delay.toMillis, TimeUnit.MILLISECONDS))
-      Behaviors.receive[TimerCommand] { (_, msg) =>
-        ctx.log.info(s"received message ${msg}")
-        msg match {
-          case c:ExpireTimerCommand => ctx.self ! cmd
-            Behaviors.stopped[TimerCommand]
-          case c:CancelTimerCommand => timer.cancel(timerId)
-            Behaviors.stopped[TimerCommand]
-          case _ =>                    Behaviors.unhandled[TimerCommand]
+      if(delay.isNegative) {
+        ctx.self ! cmd
+        Behaviors.stopped[TimerCommand]
+      } else {
+        timer.startSingleTimer(timerId, cmd, FiniteDuration(delay.toMillis, TimeUnit.MILLISECONDS))
+        Behaviors.receive[TimerCommand] { (_, msg) =>
+          ctx.log.info(s"received message ${msg}")
+          msg match {
+            case c:ExpireTimerCommand => ctx.self ! cmd
+              Behaviors.stopped[TimerCommand]
+            case c:CancelTimerCommand => timer.cancel(timerId)
+              Behaviors.stopped[TimerCommand]
+            case _ =>  Behaviors.unhandled[TimerCommand]
+          }
         }
       }
     }

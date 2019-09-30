@@ -11,19 +11,19 @@ object TrafficLight extends App {
   val ref = ActorSystem(c, trafficLight.id)
 
   Thread.sleep(10 * 1000)
-  ref ! TrafficCommand
+  ref ! TrafficCommand()
   Thread.sleep(15 * 1000)
-  ref ! TrafficCommand
+  ref ! TrafficCommand()
   Thread.sleep(3 * 1000)
-  ref ! PedestrianCommand
+  ref ! PedestrianCommand()
   Thread.sleep(1 * 1000)
-  ref ! ExplodeCommand
+  ref ! ExplodeCommand()
   Thread.sleep(10 * 1000)
-  ref ! PedestrianCommand
+  ref ! PedestrianCommand()
   Thread.sleep(3 * 1000)
-  ref ! StopCommand
+  ref ! StopCommand()
   Thread.sleep(3 * 1000)
-  ref ! StopCommand
+  ref ! StopCommand()
 
 }
 
@@ -32,7 +32,7 @@ case class TrafficLight(id:String) {
   def behavior:Behavior[Command] = Behaviors.setup { ctx =>
     val initial = Red(ctx)
     ctx.log.info(s"initial state ${initial}")
-    val canceller = initial.expiryOption.map { expiry => withTimer(expiry, ExpireCommand, ctx) }
+    val canceller = initial.expiryOption.map { expiry => withTimer(expiry, ExpireCommand(), ctx) }
     wrap(initial, ctx)
   }
 
@@ -45,6 +45,10 @@ case class TrafficLight(id:String) {
         ctx.log.info(s"command handler (${current},${msg}) => Effect")
         val next = transition()
         val builder:EffectBuilder[Command, TrafficLightState] = next match {
+          case t:TimedState => {
+            t.expiryOption.map { withTimer(_, ExpireCommand(), ctx) }
+            Effect.persist(msg)
+          }
           case s:Final => Effect.persist[Command, TrafficLightState](msg).thenStop
           case _ => Effect.persist(msg)
         }
@@ -58,6 +62,10 @@ case class TrafficLight(id:String) {
     ).receiveSignal {
       case (state, signal@RecoveryCompleted) => {
         ctx.log.info(s"recovery completed: (${state}, ${signal})")
+        state match {
+          case t:TimedState => t.expiryOption.map { withTimer(_, ExpireCommand(), ctx) }
+          case _ =>
+        }
       }
       case (state, signal) => {
         ctx.log.info(s"signal received: (${state}, ${signal})")
