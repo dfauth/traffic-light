@@ -1,7 +1,7 @@
 
 import ActorUtils._
 import akka.actor.typed.scaladsl.{ActorContext, Behaviors}
-import akka.actor.typed.{ActorSystem, Behavior, SupervisorStrategy}
+import akka.actor.typed.{ActorRef, ActorSystem, Behavior, SupervisorStrategy}
 import akka.persistence.typed.{PersistenceId, RecoveryCompleted}
 import akka.persistence.typed.scaladsl.{Effect, EffectBuilder, EventSourcedBehavior}
 
@@ -12,25 +12,18 @@ object TrafficLight extends App {
 
   Thread.sleep(10 * 1000)
   ref ! TrafficCommand()
+  Thread.sleep(15 * 1000)
+  ref ! TrafficCommand()
   Thread.sleep(3 * 1000)
+  ref ! PedestrianCommand()
+  Thread.sleep(1 * 1000)
+  ref ! ExplodeCommand()
+  Thread.sleep(10 * 1000)
   ref ! PedestrianCommand()
   Thread.sleep(3 * 1000)
   ref ! StopCommand()
-
-//  Thread.sleep(10 * 1000)
-//  ref ! TrafficCommand()
-//  Thread.sleep(15 * 1000)
-//  ref ! TrafficCommand()
-//  Thread.sleep(3 * 1000)
-//  ref ! PedestrianCommand()
-//  Thread.sleep(1 * 1000)
-//  ref ! ExplodeCommand()
-//  Thread.sleep(10 * 1000)
-//  ref ! PedestrianCommand()
-//  Thread.sleep(3 * 1000)
-//  ref ! StopCommand()
-//  Thread.sleep(3 * 1000)
-//  ref ! StopCommand()
+  Thread.sleep(3 * 1000)
+  ref ! StopCommand()
 
 }
 
@@ -44,6 +37,9 @@ case class TrafficLight(id:String) {
   }
 
   def wrap(initial: TrafficLightState, ctx:ActorContext[Command]): Behavior[Command] = {
+
+    var timerActorRef:Option[ActorRef[TimerCommand]] = None
+
     EventSourcedBehavior.apply[Command, Command, TrafficLightState] (
       PersistenceId(id),
       initial,
@@ -51,17 +47,16 @@ case class TrafficLight(id:String) {
         val transition = current.onEvent(msg)
         ctx.log.info(s"command handler (${current},${msg}) => Effect")
         (current, msg) match {
-          case (t:TimedState, e:ExpireCommand) => // expired nothing to do
-          case (t:TimedState, _) => {
-            ctx.log.info(s"WOOZ cancel timer on ${t}")
-            t.cancelTimer() // other transition, cancel timer
+          case (t:TimedState[Command], e:ExpireCommand) => // expired nothing to do
+          case (t:TimedState[Command], _) => {
+            timerActorRef.map { t.cancelTimer(_) } // other transition, cancel timer
           }
           case _ => // non-timed state; ignore
         }
         val next = transition()
         val builder:EffectBuilder[Command, TrafficLightState] = next match {
-          case t:TimedState => {
-            t.withTimer(ExpireCommand(), ctx)
+          case t:TimedState[Command] => {
+            timerActorRef = t.withTimer(ExpireCommand())
             Effect.persist(msg)
           }
           case s:Final => Effect.persist[Command, TrafficLightState](msg).thenStop
@@ -78,7 +73,9 @@ case class TrafficLight(id:String) {
       case (state, signal@RecoveryCompleted) => {
         ctx.log.info(s"recovery completed: (${state}, ${signal})")
         state match {
-          case t:TimedState => t.withTimer(ExpireCommand(), ctx)
+          case t:TimedState[Command] => {
+            timerActorRef = t.withTimer(ExpireCommand())
+          }
           case _ =>
         }
       }

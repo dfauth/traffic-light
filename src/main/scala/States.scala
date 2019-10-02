@@ -58,7 +58,7 @@ sealed trait TrafficLightState extends LazyLogging{
   def onExit():SideEffect = noOpSideEffect
 }
 
-case class Red(ctx:ActorContext[Command], expiryOption:Option[LocalDateTime] = None) extends TrafficLightState with TimedState {
+case class Red(ctx:ActorContext[Command], expiryOption:Option[LocalDateTime] = None) extends TrafficLightState with TimedState[Command] {
   override def _onEvent = {
     case c:ExpireCommand  => reset; transitionTo(Green(ctx, withDuration(c.timestamp))).withSideEffect { s =>
       logger.info(s"${c} triggers transition ${this} -> ${s}")
@@ -69,7 +69,7 @@ case class Red(ctx:ActorContext[Command], expiryOption:Option[LocalDateTime] = N
   }
 }
 
-case class Yellow(ctx:ActorContext[Command], expiryOption:Option[LocalDateTime] = TrafficLightState.withDuration(duration = 2)) extends TrafficLightState with TimedState {
+case class Yellow(ctx:ActorContext[Command], expiryOption:Option[LocalDateTime] = TrafficLightState.withDuration(duration = 2)) extends TrafficLightState with TimedState[Command] {
   override def _onEvent = {
     case c:PedestrianCommand => transitionTo(Red(ctx, withDuration(c.timestamp))).withSideEffect { s =>
       logger.info(s"${c} triggers transition ${this} -> ${s}")
@@ -80,7 +80,7 @@ case class Yellow(ctx:ActorContext[Command], expiryOption:Option[LocalDateTime] 
   }
 }
 
-case class Green(ctx:ActorContext[Command], expiryOption:Option[LocalDateTime] = TrafficLightState.withDuration()) extends TrafficLightState with TimedState {
+case class Green(ctx:ActorContext[Command], expiryOption:Option[LocalDateTime] = TrafficLightState.withDuration()) extends TrafficLightState with TimedState[Command] {
   override def _onEvent = {
     case c:PedestrianCommand => transitionTo(Yellow(ctx, withDuration(c.timestamp))).withSideEffect { s =>
       logger.info(s"${c} triggers transition ${this} -> ${s}")

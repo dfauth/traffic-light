@@ -4,6 +4,8 @@ import java.util.concurrent.TimeUnit
 
 import akka.Done
 import akka.actor.typed.ActorRef
+import akka.actor.typed.receptionist.{Receptionist, ServiceKey}
+import akka.actor.typed.receptionist.Receptionist.Subscribe
 import akka.actor.typed.scaladsl.{ActorContext, Behaviors}
 import com.typesafe.scalalogging.LazyLogging
 
@@ -18,22 +20,17 @@ object Utils {
 
 }
 
-trait TimedState extends LazyLogging {
+trait TimedState[T] extends LazyLogging {
+  val ctx:ActorContext[T]
   val expiryOption:Option[LocalDateTime]
-  private var canceller:Option[ActorRef[TimerCommand]] = None
-  def withTimer[T, U <: ExpireTimerCommand](cmd:U with T, ctx:ActorContext[T]):Unit = {
-    expiryOption.foreach { e =>
-      this.canceller = Some(ActorUtils.withTimer(e, cmd, ctx))
-      ctx.log.info(s"WOOZ set new canceller ${this.canceller} on ${this}")
+  def withTimer[U <: ExpireTimerCommand](cmd:U with T) = {
+    expiryOption.map { e =>
+      ActorUtils.withTimer(e, cmd, ctx)
     }
   }
 
-  def cancelTimer():Unit = {
-    logger.info(s"WOOZ canceller: ${this.canceller} on ${this}")
-    canceller.map { ref =>
-      ref ! InternalCancelTimerCommand
-      logger.info(s"WOOZ sent cancel command to ${ref}")
-    }
+  def cancelTimer(ref:ActorRef[TimerCommand]):Unit = {
+    ref ! InternalCancelTimerCommand
   }
 }
 
@@ -55,13 +52,12 @@ object ActorUtils {
       } else {
         timer.startSingleTimer(timerId, cmd, FiniteDuration(delay.toMillis, TimeUnit.MILLISECONDS))
         Behaviors.receive[TimerCommand] { (_, msg) =>
-          ctx.log.info(s"received message ${msg}")
           msg match {
             case c:ExpireTimerCommand => ctx.self ! cmd
               Behaviors.stopped[TimerCommand]
             case c:CancelTimerCommand => {
               timer.cancel(timerId)
-              ctx.log.info(s"cancelled timer ${timerId}")
+              ctx.log.info(s"cancelled timer with id: ${timerId}")
               Behaviors.stopped[TimerCommand]
             }
             case _ =>  Behaviors.unhandled[TimerCommand]
@@ -71,6 +67,4 @@ object ActorUtils {
     }
     ctx.spawnAnonymous(b)
   }
-
-
 }
