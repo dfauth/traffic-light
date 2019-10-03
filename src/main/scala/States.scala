@@ -49,10 +49,6 @@ sealed trait TrafficLightState extends LazyLogging{
     })
   }
 
-  private var cancelTimer:() => Unit = () => Unit
-
-  protected def reset:Unit = cancelTimer = () => Unit
-
   def onEntry():SideEffect = noOpSideEffect
 
   def onExit():SideEffect = noOpSideEffect
@@ -60,7 +56,7 @@ sealed trait TrafficLightState extends LazyLogging{
 
 case class Red(ctx:ActorContext[Command], expiryOption:Option[LocalDateTime] = None) extends TrafficLightState with TimedState[Command] {
   override def _onEvent = {
-    case c:ExpireCommand  => reset; transitionTo(Green(ctx, withDuration(c.timestamp))).withSideEffect { s =>
+    case c:ExpireCommand  => transitionTo(Green(ctx, withDuration(c.timestamp))).withSideEffect { s =>
       logger.info(s"${c} triggers transition ${this} -> ${s}")
     }
     case c:TrafficCommand => transitionTo(Green(ctx, withDuration(c.timestamp))).withSideEffect { s =>
@@ -74,7 +70,7 @@ case class Yellow(ctx:ActorContext[Command], expiryOption:Option[LocalDateTime] 
     case c:PedestrianCommand => transitionTo(Red(ctx, withDuration(c.timestamp))).withSideEffect { s =>
       logger.info(s"${c} triggers transition ${this} -> ${s}")
     }
-    case c:ExpireCommand => reset; transitionTo(Red(ctx, withDuration(c.timestamp))).withSideEffect { s =>
+    case c:ExpireCommand => transitionTo(Red(ctx, withDuration(c.timestamp))).withSideEffect { s =>
       logger.info(s"${c} triggers transition ${this} -> ${s}")
     }
   }
@@ -85,7 +81,7 @@ case class Green(ctx:ActorContext[Command], expiryOption:Option[LocalDateTime] =
     case c:PedestrianCommand => transitionTo(Yellow(ctx, withDuration(c.timestamp))).withSideEffect { s =>
       logger.info(s"${c} triggers transition ${this} -> ${s}")
     }
-    case c:ExpireCommand => reset; transitionTo(Yellow(ctx, withDuration(c.timestamp))).withSideEffect { s =>
+    case c:ExpireCommand => transitionTo(Yellow(ctx, withDuration(c.timestamp))).withSideEffect { s =>
       logger.info(s"${c} triggers transition ${this} -> ${s}")
     }
   }
